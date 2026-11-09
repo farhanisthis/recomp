@@ -1,0 +1,49 @@
+{
+  "summary": "Frontend-only test of RECOMP (Expo web preview, sql.js/localStorage, 390x844). Tested end to end: onboarding (with validation), tabs, Hinglish food search, qty scaling, add/edit/delete/move entries, quick add, custom food, text-log review, recipes, saved meals, water, steps, sleep across midnight, check-in, workout plan -> active session (sets, rest timer, pause, reload recovery, no duplicate session) -> finish summary/history/PRs, measurements + chart + edit/delete, profile edit, units, AI settings and offline parser, report, achievements, and persistence after reload. Most flows work. Bugs found: (1) the Dark theme does nothing on web, (2) text-log review isn't required for items given in grams, (3) data entered less than 250ms before a reload is lost on web. No deprecated Expo packages detected (no expo-av, expo-barcode-scanner or expo-background-fetch).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Settings > Appearance (theme)", "issue": "Choosing Dark (settings-theme-dark) saves the setting but the UI stays light. The background stays rgb(247,244,255) on Settings and Home, even after navigating away. RCA: applyThemePref relies on Appearance.setColorScheme, which does nothing on react-native-web, and useTheme() only reads useColorScheme(). Reference: /app/frontend/src/theme.ts:106-120", "testID": "settings-theme-dark", "priority": "HIGH"},
+      {"component": "Text meal log mandatory review", "issue": "Items with explicit grams (e.g. '150g rice') start out confirmed (ok = !needsReview). So 'Add All to Meal' becomes enabled after confirming only the roti and dal items. Tapping 'Looks right' on that pre-confirmed item un-confirms it, which is confusing. This breaks the requirement that save stays disabled until every item is confirmed. Reference: /app/frontend/app/food/ai-log.tsx:37,44", "testID": "ai-item-confirm-2 / ai-log-save", "priority": "MEDIUM"},
+      {"component": "Web DB persistence", "issue": "Data loss on quick reload: tapping water-add-250 and reloading about 50ms later shows 0 ml. persist() is debounced by 250ms and nothing flushes the pending save on pagehide, beforeunload or visibilitychange. Reference: /app/frontend/src/db/client.web.ts:10-22", "testID": "water-add-250", "priority": "MEDIUM"},
+      {"component": "Food detail quantity", "issue": "There is no upper limit or sanity warning on quantity. 250 servings of paneer (5000 g, 13250 kcal) is accepted.", "testID": "food-qty-input", "priority": "LOW"},
+      {"component": "Session summary PRs", "issue": "session-prs is empty after the first completed session, but the Records screen shows a best of 70 kg and an estimated 1RM. Check whether first-session PRs should be highlighted.", "testID": "session-prs", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Home", "issues": ["Greeting truncates to 'Good evening, …' at 390px, so the user's name (TEST_Ravi) is never visible. Consider moving the name to a second line or shrinking the font."]},
+      {"screen": "Food detail / Add Food", "issues": ["Every food (roti, paneer, custom protein bar) shows the same sausage-and-rice bowl illustration, which doesn't match the food. Use a neutral food icon or a per-category image."]},
+      {"screen": "Global toast", "issues": ["Toast (e.g. 'Logged to Snacks · Today') covers the header back button and title for its whole duration."]},
+      {"screen": "Profile edit", "issues": ["After a successful profile-save the screen stays on /profile/edit instead of going back. Confirm this is intended."]}
+    ],
+    "react_native_issues": [
+      {"component": "Appearance.setColorScheme on web", "issue": "Theme override depends on Appearance.setColorScheme, which react-native-web doesn't implement. Keep the theme preference in React state/context and work out the scheme from preference plus system. Reference: /app/frontend/src/theme.ts:106-120"},
+      {"component": "LogBox dev toast", "issue": "The dev LogBox toast for the react-native-svg warning 'Invalid DOM property transform-origin' sits over the bottom tab bar and intercepts real taps on the web preview. Tests had to use dispatch_event clicks. Known and ignored per instructions; consider LogBox.ignoreLogs for this warning."}
+    ]
+  },
+  "test_report_links": [".screenshots/ (browser automation)", "/app/test_reports/iteration_1.json"],
+  "action_items": [
+    "Fix the theme: keep the pref (light/dark/system) in a context or store read by useTheme(), and use useColorScheme() only when pref is 'system' (src/theme.ts). Re-verify dark mode on Home, Settings and the tab bar.",
+    "ai-log.tsx: start every resolved item with ok:false so the user must tap 'Looks right' on all items before ai-log-save is enabled.",
+    "client.web.ts: flush pending persist() immediately on 'pagehide', 'beforeunload' and visibilitychange 'hidden', or persist right away after each write.",
+    "Add a sanity cap or warning for very large quantities in the food detail and quick add screens.",
+    "Show the user's name in the Home greeting without truncating it at 390px.",
+    "backup.ts restore (line ~68): whitelist column names against PRAGMA table_info before putting backup JSON keys into INSERT SQL.",
+    "Optional: LogBox.ignoreLogs(['Invalid DOM property']) so the dev toast doesn't cover the tab bar."
+  ],
+  "critical_code_review_comments": [
+    "src/lib/backup.ts:62-68: column names from an untrusted backup file are interpolated into SQL (INSERT INTO t(cols)). This is local-only but allows malformed or crafted SQL. Validate them against the schema.",
+    "src/db/client.web.ts: the 250ms debounced persist with no unload flush causes data loss (reproduced).",
+    "src/theme.ts: Appearance.setColorScheme is called at module load to force light, and the user preference can't override it on web.",
+    "app/food/ai-log.tsx:37: auto-confirming items with explicit grams goes against the 'mandatory review' requirement.",
+    "Expo Router on web keeps previous screens mounted, so the same testIDs exist several times in the DOM. Tests must use the ':visible' filter.",
+    "No deprecated Expo packages found. Gemini key stored via the secure storage helper (expo-secure-store)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (not requested, no backend used)", "frontend": "~90% (3 functional bugs out of ~30 verified flows)"},
+  "seed_data_creation": "Each browser run started with fresh localStorage, so data was created only inside the test browser (TEST_Ravi profile, TEST_ foods, recipe, plan). No server data touched.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Each browser_automation call starts with empty localStorage, so every script must finish onboarding first: next, then name/age/height/weight, then onboarding-next-button 5x. Use page.locator('[data-testid=x]:visible').first.dispatch_event('click') for taps: the LogBox transform-origin toast blocks force-clicks on the tab bar, and old screens stay in the DOM. Tabs: log-food-tabs-quick, recipes-tabs-recipes, activity-tabs-sleep/checkin. Units: settings-unit-weight-lb. Browser date is Nov 2026.",
+  "rca_of_issue": "Theme: react-native-web Appearance has no setColorScheme, so useColorScheme() always returns the browser's 'light'. Text log: resolveItems sets needsReview only for assumed or unknown portions, and ai-log maps ok = !needsReview. Persistence: setTimeout(250) debounce in client.web.ts persist() is lost when the page unloads before the timer fires (reproduced: add 250 ml, reload after 50 ms, total shows 0 ml)."
+}
